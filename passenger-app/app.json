@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "BusTrack India",
+    "slug": "bustrack-india-passenger",
+    "scheme": "bustrack",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "BusTrack uses your location to find nearby buses."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "bus-alerts"
+        }
+      ],
+      "expo-status-bar"
+    ],
+    "android": {
+      "package": "in.bustrack.passenger",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "VIBRATE"
+      ]
+    },
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

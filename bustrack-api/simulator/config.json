@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "intervalMs": 5000,
+  "speedKmh": {"min": 18, "max": 38},
+  "accuracyMeters": 8,
+  "movementFractionPerTick": 0.18,
+  "description": "Edit interval, speed and accuracy here. Route coordinates come from routes.stops_json in MySQL."
+}

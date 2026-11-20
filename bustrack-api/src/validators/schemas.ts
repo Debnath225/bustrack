@@ -1,0 +1,223 @@
+import { z } from "zod";
+import { BOOKING_STATUSES, BUS_STATUSES, LIMITS, ROLES } from "../constants";
+import { OBJECT_ID_PATTERN } from "../utils/ids";
+
+const objectId = z.string().regex(OBJECT_ID_PATTERN, "Invalid id");
+const busId = z.string().trim().regex(/^[A-Za-z0-9_-]{3,24}$/, "Invalid bus id");
+const email = z.string().trim().toLowerCase().email().max(190);
+const password = z.string().min(LIMITS.passwordMin).max(LIMITS.passwordMax);
+const timeOfDay = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use HH:mm format.");
+const capacity = z.number().int().min(1).max(LIMITS.maxBusCapacity);
+const pagination = {
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+};
+const nonEmpty = (value: object) => Object.keys(value).length > 0;
+
+// ---------- auth ----------
+export const credentialsSchema = z.object({ email, password });
+
+export const registerSchema = credentialsSchema.extend({
+  name: z.string().trim().min(2).max(100),
+});
+
+export const passwordChangeSchema = z.object({
+  currentPassword: z.string().min(1).max(LIMITS.passwordMax),
+  newPassword: password,
+});
+
+// ---------- passenger ----------
+export const profileSchema = z.object({
+  name: z.string().trim().min(2).max(100),
+});
+
+export const notificationPreferencesSchema = z
+  .object({
+    arrivalAlerts: z.boolean().optional(),
+    routeAlerts: z.boolean().optional(),
+    soundEnabled: z.boolean().optional(),
+    vibrationEnabled: z.boolean().optional(),
+    quietStart: timeOfDay.nullable().optional(),
+    quietEnd: timeOfDay.nullable().optional(),
+  })
+  .refine(nonEmpty, "Provide at least one preference.");
+
+export const availabilityQuerySchema = z.object({
+  fromStopIndex: z.coerce.number().int().min(0),
+  toStopIndex: z.coerce.number().int().min(0),
+});
+
+export const nearbyQuerySchema = z.object({
+  lat: z.coerce.number().min(-90).max(90),
+  lon: z.coerce.number().min(-180).max(180),
+  radius: z.coerce.number().min(100).max(20000).default(2500),
+});
+
+export const createBookingSchema = z.object({
+  busId,
+  fromStopIndex: z.number().int().min(0),
+  toStopIndex: z.number().int().min(0),
+  seats: z.number().int().min(1).max(LIMITS.maxSeatsPerBooking),
+});
+
+// ---------- driver ----------
+export const locationSchema = z.object({
+  lat: z.number().min(-90).max(90),
+  lon: z.number().min(-180).max(180),
+  speed: z.number().min(0).max(200).default(0),
+  bearing: z.number().min(0).max(360).default(0),
+  accuracy: z.number().min(0).max(10000).default(30),
+});
+
+export const faresSchema = z
+  .object({
+    fares: z
+      .array(
+        z.object({
+          fromStopIndex: z.number().int().min(0),
+          toStopIndex: z.number().int().min(1),
+          amount: z
+            .number()
+            .positive()
+            .max(10000)
+            .refine((amount) => Math.abs(amount * 100 - Math.round(amount * 100)) < 1e-8, "Use at most two decimals."),
+        }),
+      )
+      .max(LIMITS.maxFarePairs),
+  })
+  .strict();
+
+export const bookingSettingsSchema = z.object({ enabled: z.boolean() }).strict();
+
+// ---------- driver access requests ----------
+const parseJsonField = <T extends z.ZodTypeAny>(schema: T) =>
+  z
+    .string()
+    .transform((value, ctx) => {
+      try {
+        return JSON.parse(value) as unknown;
+      } catch {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Field must be valid JSON." });
+        return z.NEVER;
+      }
+    })
+    .pipe(schema);
+
+const customStopSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  lat: z.number().min(-90).max(90),
+  lon: z.number().min(-180).max(180),
+});
+
+export const driverAccessSchema = z
+  .object({
+    name: z.string().trim().min(2).max(100),
+    email,
+    phone: z.string().trim().max(32).optional().transform((value) => value || null),
+    reason: z.string().trim().max(500).optional().transform((value) => value || null),
+    // Either an existing route (routeId + stopIndexes) or a custom route drawn on the map (customStops).
+    routeId: objectId.optional(),
+    stopIndexes: parseJsonField(z.array(z.number().int().min(0)).min(2).max(LIMITS.maxStops)).optional(),
+    customStops: parseJsonField(z.array(customStopSchema).min(2).max(LIMITS.maxStops)).optional(),
+    customRouteName: z.string().trim().min(1).max(120).optional().transform((value) => value || null),
+  })
+  .strict()
+  .refine(
+    (value) => Boolean(value.customStops) !== Boolean(value.routeId),
+    "Choose an existing route or draw a custom route, not both.",
+  )
+  .refine(
+    (value) => !value.routeId || (value.stopIndexes && value.stopIndexes.length >= 2),
+    "Choose at least two stops on the requested route.",
+  )
+  .refine(
+    (value) => !value.stopIndexes || new Set(value.stopIndexes).size === value.stopIndexes.length,
+    "Choose each route stop only once.",
+  );
+
+export const approveAccessSchema = z
+  .object({
+    password,
+    busId,
+  })
+  .strict();
+
+// ---------- admin: routes ----------
+const stopSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    lat: z.number().min(-90).max(90).nullable().optional(),
+    lon: z.number().min(-180).max(180).nullable().optional(),
+  })
+  .refine((stop) => (stop.lat == null) === (stop.lon == null), "Provide both coordinates or neither.");
+
+const routeBase = z.object({
+  name: z.string().trim().min(2).max(120),
+  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9-]{2,30}$/),
+  origin: z.string().trim().min(2).max(120),
+  destination: z.string().trim().min(2).max(120),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default("#2563EB"),
+  stops: z.array(stopSchema).min(2).max(LIMITS.maxStops),
+});
+
+export const routeCreateSchema = routeBase.strict();
+export const routeUpdateSchema = routeBase.partial().strict().refine(nonEmpty, "Provide at least one field to update.");
+
+// ---------- admin: buses ----------
+export const busCreateSchema = z
+  .object({
+    busId,
+    label: z.string().trim().min(2).max(80),
+    routeId: objectId.nullable().optional(),
+    capacity: capacity.optional(),
+  })
+  .strict();
+
+export const busUpdateSchema = z
+  .object({
+    label: z.string().trim().min(2).max(80).optional(),
+    capacity: capacity.optional(),
+    routeId: objectId.nullable().optional(),
+  })
+  .strict()
+  .refine(nonEmpty, "Provide a label, capacity, or route to update.");
+
+export const busStatusSchema = z.object({ status: z.enum(BUS_STATUSES) }).strict();
+export const busRouteSchema = z.object({ routeId: objectId.nullable() }).strict();
+
+// ---------- admin: drivers ----------
+export const driverCreateSchema = z
+  .object({
+    name: z.string().trim().min(2).max(100),
+    email,
+    password,
+    busId: busId.nullable().optional(),
+  })
+  .strict();
+
+export const driverUpdateSchema = z.object({ name: z.string().trim().min(2).max(100) }).strict();
+export const assignmentSchema = z.object({ busId: busId.nullable() }).strict();
+export const driverStatusSchema = z.object({ status: z.enum(["approved", "suspended"]) }).strict();
+
+// ---------- admin: queries ----------
+export const usersQuerySchema = z.object({
+  role: z.enum(ROLES).optional(),
+  q: z.string().trim().max(100).optional(),
+  ...pagination,
+});
+
+export const bookingsQuerySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  busId: busId.optional(),
+  status: z.enum(BOOKING_STATUSES).optional(),
+  ...pagination,
+});
+
+export const analyticsQuerySchema = z.object({
+  days: z.enum(["7", "30"]).default("7"),
+});
+
+export type RouteCreateInput = z.infer<typeof routeCreateSchema>;
+export type RouteUpdateInput = z.infer<typeof routeUpdateSchema>;
+export type DriverAccessInput = z.infer<typeof driverAccessSchema>;
+export type FaresInput = z.infer<typeof faresSchema>;
