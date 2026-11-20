@@ -83,9 +83,10 @@ const busSchema = new Schema<IBus>(
     timestamps: true,
     toJSON: {
       transform: (_doc, ret) => {
-        ret.busId = ret._id;
-        delete ret._id;
-        delete ret.bookingLockVersion;
+        const output = ret as unknown as Record<string, any>;
+        output.busId = output._id;
+        delete output._id;
+        delete output.bookingLockVersion;
         return ret;
       },
     },

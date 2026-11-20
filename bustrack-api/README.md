@@ -16,7 +16,8 @@ src/
   controllers/        HTTP layer: parse input, call a service, shape the response
   services/           Business rules and database work
   routes/             Route table per audience (auth, passenger, driver, admin)
-  scripts/seed.ts     Demo routes, buses and accounts
+  scripts/seed.ts     Demo routes, buses and accounts (development/test only)
+  scripts/bootstrapAdmin.ts  One-time administrator bootstrap
   utils/              Errors, transactions, geo, MQTT parsing
 tests/                node:test unit tests (pure logic, no database needed)
 simulator/config.json GPS simulator tuning
@@ -30,7 +31,7 @@ Dependency direction: routes → controllers → services → models. Services n
 Requirements: Node 20+, Docker (for MongoDB).
 
 ```bash
-npm install
+npm install                 # generate package-lock.json on the first install
 cp .env.example .env            # set JWT_SECRET to a 32+ character random string
 
 docker compose up -d mongo
@@ -42,9 +43,29 @@ npm run dev
 
 **MongoDB must run as a replica set.** Seat booking uses multi-document transactions, which MongoDB only supports on replica sets. Atlas clusters are replica sets already.
 
-Demo logins (seed only): `admin@bustrack.local` / `Admin@12345`, `driver@bustrack.local` / `Driver@12345`.
+Demo logins (development/test seed only): `admin@bustrack.local` / `Admin@12345`, `driver@bustrack.local` / `Driver@12345`. The seed command refuses to run when `NODE_ENV=production`.
 
-Scripts: `npm run dev`, `npm run build && npm start`, `npm test`, `npm run typecheck`, `npm run seed`.
+Scripts: `npm run dev`, `npm run build && npm start`, `npm test`, `npm run typecheck`, `npm run seed`, `npm run bootstrap-admin`.
+
+## Production deployment
+
+1. Set `NODE_ENV=production`, a unique random `JWT_SECRET` (at least 32 characters), a TLS MongoDB URI (`mongodb+srv://` or `mongodb://...?tls=true`), and an exact comma-separated `CORS_ORIGIN` allowlist. Do not use `*`.
+2. Configure a private MQTT broker. If `MQTT_ENABLED=true`, set `MQTT_BROKER_URL=mqtts://...`, `MQTT_USERNAME`, and `MQTT_PASSWORD`. Configure broker-side ACLs so each device can publish only its own bus topic and the API identity can subscribe only to the required location topic. Do not use a public anonymous broker for production GPS data.
+3. Keep `GPS_SIMULATOR_ENABLED=false` in production. Store `.env` and uploaded driver documents outside source control; `private_uploads/` must not be exposed by the web server or reverse proxy. Terminate HTTPS at a trusted reverse proxy/load balancer.
+4. On the first dependency install, run `npm install` and commit the generated `package-lock.json`; subsequent clean builds should use `npm ci && npm run build`, then start with `npm start`. Use a MongoDB replica set; transactions are required for booking and fleet assignment operations.
+5. Create the first administrator once, using deployment secrets injected only for this command:
+
+   ```bash
+   ADMIN_BOOTSTRAP_NAME="System Administrator" \
+   ADMIN_BOOTSTRAP_EMAIL="admin@your-domain.example" \
+   ADMIN_BOOTSTRAP_PASSWORD="use-a-unique-12+-character-secret" \
+   npm run bootstrap-admin
+   ```
+
+   The command refuses to create another admin when one already exists. Do not put the bootstrap password in source control or a persistent `.env` file.
+6. Run `npm test`, `npm run typecheck`, and `npm run build` in CI before deployment. Back up MongoDB and private document storage, monitor `/health`, and rotate MQTT/JWT credentials on compromise.
+
+**Operational note:** the included `express-rate-limit` memory store is suitable for a single API instance. Use a shared Redis-compatible rate-limit store before running multiple API replicas so limits cannot be bypassed by switching instances.
 
 ## Endpoints
 
@@ -108,7 +129,7 @@ All responses use `{ success, data }` or `{ success: false, message }`. Ids are 
 - **Latest position:** each bus carries `lastLocation`. The old `LEFT JOIN` query over location history is gone. History lives in `LocationPing`, which expires after `LOCATION_RETENTION_DAYS`.
 - **Out-of-order GPS:** a late ping no longer overwrites a newer position.
 - **Concurrency:** bookings and seat counts run in one transaction. A bus document is touched first, which serialises concurrent bookings on the same bus.
-- **Security:** stored document filenames are never returned, and only `<uuid>.jpg|png` names are accepted. Image uploads are checked by their magic bytes. Login, registration and password-change endpoints have a stricter rate limit.
+- **Security:** stored document filenames are never returned, and only `<uuid>.jpg|png` names are accepted. Image uploads are checked by their magic bytes. Request bodies and queries use strict Zod schemas, and login, registration, password-change and document submission endpoints are rate-limited. JWTs use issuer/audience/algorithm checks and are revalidated against current account role, driver approval and token version on each authenticated request. Password changes revoke previous tokens.
 - **Behaviour changes to know about:**
   - Changing a bus's route clears its fares and turns bookings off. Fare pairs are stop indexes, so they are meaningless on another route.
   - Editing a route's stops clears fares on every bus using it.
@@ -118,6 +139,6 @@ All responses use `{ success, data }` or `{ success: false, message }`. Ids are 
 
 ## Not included (next steps)
 
-- Token revocation / logout. JWTs are stateless and expire after `JWT_EXPIRES_IN`.
+- A dedicated logout endpoint / refresh-token rotation. Access tokens are revoked on password change and account-state changes, and otherwise expire after `JWT_EXPIRES_IN`.
 - Live tracking over Server-Sent Events or WebSockets. Clients currently poll `/api/passenger/buses`.
 - Payment. Fares are collected on board, as before.

@@ -22,7 +22,11 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   } else if (err instanceof SyntaxError && (err as { type?: string }).type === "entity.parse.failed") {
     status = 400;
     message = "Request body contains invalid JSON.";
-  } else if ((err as { code?: number }).code === 11000) {
+  } else if (typeof err === "object" && err !== null && "type" in err &&
+      (err as { type?: string }).type === "entity.too.large") {
+    status = 413;
+    message = "Request body is too large.";
+  } else if (typeof err === "object" && err !== null && "code" in err && (err as { code?: number }).code === 11000) {
     status = 409;
     message = "A record with these details already exists.";
   } else if (err instanceof mongoose.Error.ValidationError || err instanceof mongoose.Error.CastError) {

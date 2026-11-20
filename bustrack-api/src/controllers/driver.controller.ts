@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { routeParam } from "../utils/params";
 import { ok } from "../utils/respond";
 import { parseOrThrow } from "../utils/validate";
 import * as auth from "../services/auth.service";
@@ -11,11 +12,15 @@ import { HttpError } from "../utils/httpError";
 
 export async function me(req: Request, res: Response): Promise<void> {
   const result = await auth.getMe(req.user!.id);
-  const user = result.user as { id: string; name: string; email: string };
+  const user = result.user;
   ok(res, {
     ...result,
-    // `driver` is kept for older app builds.
-    driver: result.assignment ? { id: user.id, name: user.name, email: user.email, ...result.assignment } : null,
+    // `driver` is kept for older app builds. Derive the public id from the
+    // persisted MongoDB id; the Mongoose toJSON transform is a runtime detail
+    // and is intentionally not relied on for TypeScript typing.
+    driver: result.assignment
+      ? { id: user._id.toString(), name: user.name, email: user.email, ...result.assignment }
+      : null,
   });
 }
 
@@ -51,11 +56,11 @@ export async function listBookings(req: Request, res: Response): Promise<void> {
 }
 
 export async function boardBooking(req: Request, res: Response): Promise<void> {
-  await booking.markBoarded(req.user!.id, req.params.bookingId);
-  ok(res, { bookingId: req.params.bookingId, status: "boarded" });
+  await booking.markBoarded(req.user!.id, routeParam(req, "bookingId"));
+  ok(res, { bookingId: routeParam(req, "bookingId"), status: "boarded" });
 }
 
 export async function markNoShow(req: Request, res: Response): Promise<void> {
-  await booking.markNoShow(req.user!.id, req.params.bookingId);
-  ok(res, { bookingId: req.params.bookingId, status: "no_show" });
+  await booking.markNoShow(req.user!.id, routeParam(req, "bookingId"));
+  ok(res, { bookingId: routeParam(req, "bookingId"), status: "no_show" });
 }

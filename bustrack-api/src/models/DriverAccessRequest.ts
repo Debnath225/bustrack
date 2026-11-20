@@ -44,11 +44,12 @@ const driverAccessRequestSchema = new Schema<IDriverAccessRequest>(
     timestamps: true,
     toJSON: {
       transform: (_doc, ret) => {
-        ret.id = String(ret._id);
-        delete ret._id;
+        const output = ret as unknown as Record<string, any>;
+        output.id = String(output._id);
+        delete output._id;
         // Stored file names are never exposed through the API.
-        delete ret.drivingLicensePath;
-        delete ret.aadhaarCardPath;
+        delete output.drivingLicensePath;
+        delete output.aadhaarCardPath;
         return ret;
       },
     },

@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { connectDatabase, disconnectDatabase } from "../config/database";
 import { logger } from "../config/logger";
 import { LIMITS } from "../constants";
+import { env } from "../config/env";
 import { Bus } from "../models/Bus";
 import { Route } from "../models/Route";
 import { User } from "../models/User";
@@ -49,6 +50,9 @@ const ROUTES = [
 ];
 
 async function seed(): Promise<void> {
+  if (env.NODE_ENV === "production") {
+    throw new Error("The demo seed is disabled in production because it creates known demo credentials.");
+  }
   await connectDatabase();
   try {
     for (const r of ROUTES) {

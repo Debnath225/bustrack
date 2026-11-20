@@ -16,10 +16,28 @@ export function createApp() {
   app.disable("x-powered-by");
 
   app.use(helmet());
-  app.use(cors({ origin: env.CORS_ORIGIN === "*" ? true : env.CORS_ORIGIN.split(",") }));
+  const allowedOrigins = env.CORS_ORIGIN.split(",").map((origin) => origin.trim()).filter(Boolean);
+  app.use(cors({
+    origin(origin, callback) {
+      // Non-browser clients do not send Origin; browser origins must be allowlisted.
+      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(null, false);
+    },
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    maxAge: 600,
+  }));
   app.use(pinoHttp({ logger }));
   app.use(globalLimiter);
-  app.use(express.json({ limit: "256kb" }));
+  app.use(express.json({ limit: "256kb", strict: true, type: "application/json" }));
+  app.use((req, res, next) => {
+    if (["POST", "PUT", "PATCH"].includes(req.method) && req.path.startsWith("/api/") &&
+        req.headers["content-type"] && !req.is(["application/json", "multipart/form-data"])) {
+      res.status(415).json({ success: false, message: "Unsupported content type." });
+      return;
+    }
+    next();
+  });
 
   app.get("/health", (_req, res) => {
     if (!isDatabaseConnected()) {

@@ -15,6 +15,7 @@ export interface IUser {
   email: string;
   passwordHash: string;
   role: UserRole;
+  tokenVersion: number;
   driverStatus?: DriverStatus;
   favoriteBusIds: string[];
   notificationPreferences: INotificationPreferences;
@@ -34,6 +35,7 @@ const userSchema = new Schema<IUser>(
     email: { type: String, required: true, unique: true, lowercase: true, trim: true, maxlength: 190 },
     passwordHash: { type: String, required: true, select: false },
     role: { type: String, enum: [...ROLES], default: "passenger", index: true },
+    tokenVersion: { type: Number, default: 0, min: 0, select: false },
     driverStatus: { type: String, enum: [...DRIVER_STATUSES] },
     favoriteBusIds: { type: [String], default: [] },
     notificationPreferences: {
@@ -49,9 +51,11 @@ const userSchema = new Schema<IUser>(
     timestamps: true,
     toJSON: {
       transform: (_doc, ret) => {
-        ret.id = String(ret._id);
-        delete ret._id;
-        delete ret.passwordHash;
+        const output = ret as unknown as Record<string, any>;
+        output.id = String(output._id);
+        delete output._id;
+        delete output.passwordHash;
+        delete output.tokenVersion;
         return ret;
       },
     },

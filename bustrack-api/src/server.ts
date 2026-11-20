@@ -13,6 +13,9 @@ async function main(): Promise<void> {
   const server = app.listen(env.PORT, "0.0.0.0", () => {
     logger.info({ port: env.PORT }, "BusTrack API listening on all interfaces");
   });
+  server.requestTimeout = 30_000;
+  server.headersTimeout = 35_000;
+  server.keepAliveTimeout = 5_000;
 
   const mqtt = env.MQTT_ENABLED ? startMqttConsumer() : null;
   const simulator = env.GPS_SIMULATOR_ENABLED ? startSimulator() : null;
@@ -27,8 +30,10 @@ async function main(): Promise<void> {
     const forceExit = setTimeout(() => process.exit(1), 10000);
     forceExit.unref();
 
-    server.close();
     try {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      });
       await mqtt?.stop();
       await disconnectDatabase();
       clearTimeout(forceExit);

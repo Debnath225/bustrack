@@ -12,7 +12,8 @@
     "start": "node dist/server.js",
     "seed": "tsx src/scripts/seed.ts",
     "test": "tsx --test tests/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "bootstrap-admin": "tsx src/scripts/bootstrapAdmin.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

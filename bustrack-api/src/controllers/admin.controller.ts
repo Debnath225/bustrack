@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { routeParam } from "../utils/params";
 import { HttpError } from "../utils/httpError";
 import { ok } from "../utils/respond";
 import { parseOrThrow } from "../utils/validate";
@@ -50,7 +51,7 @@ export async function listRoutes(_req: Request, res: Response): Promise<void> {
 }
 
 export async function getRoute(req: Request, res: Response): Promise<void> {
-  ok(res, { route: await route.getRoute(req.params.routeId) });
+  ok(res, { route: await route.getRoute(routeParam(req, "routeId")) });
 }
 
 export async function createRoute(req: Request, res: Response): Promise<void> {
@@ -60,17 +61,17 @@ export async function createRoute(req: Request, res: Response): Promise<void> {
 
 export async function updateRoute(req: Request, res: Response): Promise<void> {
   const patch = parseOrThrow(routeUpdateSchema, req.body, "Provide valid route fields to update.");
-  ok(res, { route: await route.updateRoute(req.params.routeId, patch) });
+  ok(res, { route: await route.updateRoute(routeParam(req, "routeId"), patch) });
 }
 
 export async function deleteRoute(req: Request, res: Response): Promise<void> {
-  await route.deleteRoute(req.params.routeId);
-  ok(res, { routeId: req.params.routeId, deleted: true });
+  await route.deleteRoute(routeParam(req, "routeId"));
+  ok(res, { routeId: routeParam(req, "routeId"), deleted: true });
 }
 
 // ---------- buses ----------
 export async function getBus(req: Request, res: Response): Promise<void> {
-  ok(res, { bus: await bus.getBusDetail(req.params.busId) });
+  ok(res, { bus: await bus.getBusDetail(routeParam(req, "busId")) });
 }
 
 export async function createBus(req: Request, res: Response): Promise<void> {
@@ -81,25 +82,25 @@ export async function createBus(req: Request, res: Response): Promise<void> {
 
 export async function updateBus(req: Request, res: Response): Promise<void> {
   const patch = parseOrThrow(busUpdateSchema, req.body, "Provide a valid label, capacity, or route to update.");
-  const updated = await bus.updateBus(req.params.busId, patch);
+  const updated = await bus.updateBus(routeParam(req, "busId"), patch);
   ok(res, { busId: updated._id });
 }
 
 export async function setBusStatus(req: Request, res: Response): Promise<void> {
   const input = parseOrThrow(busStatusSchema, req.body, "Invalid status");
-  await bus.setBusStatus(req.params.busId, input.status);
-  ok(res, { busId: req.params.busId, status: input.status });
+  await bus.setBusStatus(routeParam(req, "busId"), input.status);
+  ok(res, { busId: routeParam(req, "busId"), status: input.status });
 }
 
 export async function setBusRoute(req: Request, res: Response): Promise<void> {
   const input = parseOrThrow(busRouteSchema, req.body, "routeId must be a route id or null to unassign.");
-  await bus.updateBus(req.params.busId, { routeId: input.routeId });
-  ok(res, { busId: req.params.busId, routeId: input.routeId });
+  await bus.updateBus(routeParam(req, "busId"), { routeId: input.routeId });
+  ok(res, { busId: routeParam(req, "busId"), routeId: input.routeId });
 }
 
 export async function deleteBus(req: Request, res: Response): Promise<void> {
-  await bus.deleteBus(req.params.busId);
-  ok(res, { busId: req.params.busId, deleted: true });
+  await bus.deleteBus(routeParam(req, "busId"));
+  ok(res, { busId: routeParam(req, "busId"), deleted: true });
 }
 
 // ---------- drivers ----------
@@ -118,22 +119,22 @@ export async function createDriver(req: Request, res: Response): Promise<void> {
 
 export async function updateDriver(req: Request, res: Response): Promise<void> {
   const input = parseOrThrow(driverUpdateSchema, req.body, "Enter a name between 2 and 100 characters.");
-  ok(res, { driver: await drivers.updateDriver(req.params.driverId, input.name) });
+  ok(res, { driver: await drivers.updateDriver(routeParam(req, "driverId"), input.name) });
 }
 
 export async function assignDriver(req: Request, res: Response): Promise<void> {
   const input = parseOrThrow(assignmentSchema, req.body, "Choose a valid bus or null to unassign.");
-  ok(res, await drivers.assignDriver(req.params.driverId, input.busId));
+  ok(res, await drivers.assignDriver(routeParam(req, "driverId"), input.busId));
 }
 
 export async function setDriverStatus(req: Request, res: Response): Promise<void> {
   const input = parseOrThrow(driverStatusSchema, req.body, "Choose approved or suspended status.");
-  ok(res, await drivers.setDriverStatus(req.params.driverId, input.status));
+  ok(res, await drivers.setDriverStatus(routeParam(req, "driverId"), input.status));
 }
 
 export async function deleteDriver(req: Request, res: Response): Promise<void> {
-  await drivers.deleteDriver(req.params.driverId);
-  ok(res, { driverId: req.params.driverId, deleted: true });
+  await drivers.deleteDriver(routeParam(req, "driverId"));
+  ok(res, { driverId: routeParam(req, "driverId"), deleted: true });
 }
 
 // ---------- users & bookings ----------
@@ -153,21 +154,22 @@ export async function listAccessRequests(_req: Request, res: Response): Promise<
 }
 
 export async function getAccessDocument(req: Request, res: Response): Promise<void> {
-  const type = req.params.documentType;
+  const type = routeParam(req, "documentType");
   if (type !== "driving-license" && type !== "aadhaar-card") {
     throw new HttpError(404, "Document not found.");
   }
-  const path = await access.getDocumentPath(req.params.requestId, type);
+  const path = await access.getDocumentPath(routeParam(req, "requestId"), type);
   res.setHeader("Cache-Control", "private, no-store, max-age=0");
   res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
   res.sendFile(path);
 }
 
 export async function approveAccessRequest(req: Request, res: Response): Promise<void> {
   const input = parseOrThrow(approveAccessSchema, req.body, "Set an initial password (8-72 characters) and assign an available bus.");
-  ok(res, await access.approveAccessRequest(req.params.requestId, req.user!.id, input), 201);
+  ok(res, await access.approveAccessRequest(routeParam(req, "requestId"), req.user!.id, input), 201);
 }
 
 export async function rejectAccessRequest(req: Request, res: Response): Promise<void> {
-  ok(res, await access.rejectAccessRequest(req.params.requestId, req.user!.id));
+  ok(res, await access.rejectAccessRequest(routeParam(req, "requestId"), req.user!.id));
 }

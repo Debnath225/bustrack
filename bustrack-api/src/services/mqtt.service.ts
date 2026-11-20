@@ -39,6 +39,8 @@ export function startMqttConsumer() {
   const client: MqttClient = mqtt.connect(env.MQTT_BROKER_URL, {
     clientId: `bustrack-api-${process.pid}`,
     clean: true,
+    username: env.MQTT_USERNAME,
+    password: env.MQTT_PASSWORD,
     connectTimeout: 10000,
     reconnectPeriod: 5000,
   });

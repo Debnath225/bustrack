@@ -8,28 +8,45 @@ const email = z.string().trim().toLowerCase().email().max(190);
 const password = z.string().min(LIMITS.passwordMin).max(LIMITS.passwordMax);
 const timeOfDay = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use HH:mm format.");
 const capacity = z.number().int().min(1).max(LIMITS.maxBusCapacity);
+// Express query values arrive as strings. Convert only scalar strings so repeated
+// parameters (arrays) and nested query objects fail validation instead of being
+// silently coerced into unexpected numbers.
+const queryNumber = (schema: z.ZodNumber) =>
+  z.preprocess(
+    (value: unknown) => {
+      // Express query values should be scalar strings. Reject arrays, objects,
+      // missing values (unless a surrounding .default() handles them), and
+      // empty strings rather than coercing them into surprising numbers.
+      // Numeric values are allowed for schema defaults and direct unit tests.
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+      if (typeof value !== "string") return Number.NaN;
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? Number(trimmed) : Number.NaN;
+    },
+    schema,
+  );
 const pagination = {
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(25),
+  page: queryNumber(z.number().int().min(1)).default(1),
+  limit: queryNumber(z.number().int().min(1).max(100)).default(25),
 };
 const nonEmpty = (value: object) => Object.keys(value).length > 0;
 
 // ---------- auth ----------
-export const credentialsSchema = z.object({ email, password });
+export const credentialsSchema = z.object({ email, password }).strict();
 
 export const registerSchema = credentialsSchema.extend({
   name: z.string().trim().min(2).max(100),
-});
+}).strict();
 
 export const passwordChangeSchema = z.object({
   currentPassword: z.string().min(1).max(LIMITS.passwordMax),
   newPassword: password,
-});
+}).strict();
 
 // ---------- passenger ----------
 export const profileSchema = z.object({
   name: z.string().trim().min(2).max(100),
-});
+}).strict();
 
 export const notificationPreferencesSchema = z
   .object({
@@ -40,25 +57,26 @@ export const notificationPreferencesSchema = z
     quietStart: timeOfDay.nullable().optional(),
     quietEnd: timeOfDay.nullable().optional(),
   })
+  .strict()
   .refine(nonEmpty, "Provide at least one preference.");
 
 export const availabilityQuerySchema = z.object({
-  fromStopIndex: z.coerce.number().int().min(0),
-  toStopIndex: z.coerce.number().int().min(0),
-});
+  fromStopIndex: queryNumber(z.number().int().min(0)),
+  toStopIndex: queryNumber(z.number().int().min(0)),
+}).strict();
 
 export const nearbyQuerySchema = z.object({
-  lat: z.coerce.number().min(-90).max(90),
-  lon: z.coerce.number().min(-180).max(180),
-  radius: z.coerce.number().min(100).max(20000).default(2500),
-});
+  lat: queryNumber(z.number().min(-90).max(90)),
+  lon: queryNumber(z.number().min(-180).max(180)),
+  radius: queryNumber(z.number().min(100).max(20000)).default(2500),
+}).strict();
 
 export const createBookingSchema = z.object({
   busId,
   fromStopIndex: z.number().int().min(0),
   toStopIndex: z.number().int().min(0),
   seats: z.number().int().min(1).max(LIMITS.maxSeatsPerBooking),
-});
+}).strict();
 
 // ---------- driver ----------
 export const locationSchema = z.object({
@@ -67,7 +85,7 @@ export const locationSchema = z.object({
   speed: z.number().min(0).max(200).default(0),
   bearing: z.number().min(0).max(360).default(0),
   accuracy: z.number().min(0).max(10000).default(30),
-});
+}).strict();
 
 export const faresSchema = z
   .object({
@@ -81,7 +99,7 @@ export const faresSchema = z
             .positive()
             .max(10000)
             .refine((amount) => Math.abs(amount * 100 - Math.round(amount * 100)) < 1e-8, "Use at most two decimals."),
-        }),
+        }).strict(),
       )
       .max(LIMITS.maxFarePairs),
   })
@@ -107,13 +125,13 @@ const customStopSchema = z.object({
   name: z.string().trim().min(1).max(120),
   lat: z.number().min(-90).max(90),
   lon: z.number().min(-180).max(180),
-});
+}).strict();
 
 export const driverAccessSchema = z
   .object({
     name: z.string().trim().min(2).max(100),
     email,
-    phone: z.string().trim().max(32).optional().transform((value) => value || null),
+    phone: z.string().trim().regex(/^\+?[1-9]\d{7,14}$/).optional().transform((value) => value || null),
     reason: z.string().trim().max(500).optional().transform((value) => value || null),
     // Either an existing route (routeId + stopIndexes) or a custom route drawn on the map (customStops).
     routeId: objectId.optional(),
@@ -133,6 +151,14 @@ export const driverAccessSchema = z
   .refine(
     (value) => !value.stopIndexes || new Set(value.stopIndexes).size === value.stopIndexes.length,
     "Choose each route stop only once.",
+  )
+  .refine(
+    (value) => !value.customRouteName || Boolean(value.customStops),
+    "A custom route name can only be used with a custom route.",
+  )
+  .refine(
+    (value) => !value.stopIndexes || Boolean(value.routeId),
+    "Stop indexes can only be used with an existing route.",
   );
 
 export const approveAccessSchema = z
@@ -149,6 +175,7 @@ const stopSchema = z
     lat: z.number().min(-90).max(90).nullable().optional(),
     lon: z.number().min(-180).max(180).nullable().optional(),
   })
+  .strict()
   .refine((stop) => (stop.lat == null) === (stop.lon == null), "Provide both coordinates or neither.");
 
 const routeBase = z.object({
@@ -204,18 +231,18 @@ export const usersQuerySchema = z.object({
   role: z.enum(ROLES).optional(),
   q: z.string().trim().max(100).optional(),
   ...pagination,
-});
+}).strict();
 
 export const bookingsQuerySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   busId: busId.optional(),
   status: z.enum(BOOKING_STATUSES).optional(),
   ...pagination,
-});
+}).strict();
 
 export const analyticsQuerySchema = z.object({
   days: z.enum(["7", "30"]).default("7"),
-});
+}).strict();
 
 export type RouteCreateInput = z.infer<typeof routeCreateSchema>;
 export type RouteUpdateInput = z.infer<typeof routeUpdateSchema>;

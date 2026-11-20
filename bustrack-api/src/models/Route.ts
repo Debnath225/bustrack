@@ -48,8 +48,9 @@ const routeSchema = new Schema<IRoute>(
     timestamps: true,
     toJSON: {
       transform: (_doc, ret) => {
-        ret.id = String(ret._id);
-        delete ret._id;
+        const output = ret as unknown as Record<string, any>;
+        output.id = String(output._id);
+        delete output._id;
         return ret;
       },
     },
