@@ -6,8 +6,9 @@ Express 5 + TypeScript + MongoDB (Mongoose) + MQTT GPS ingestion.
 
 ```
 src/
-  app.ts              Express app factory (middleware + routes)
-  server.ts           Entrypoint: DB, HTTP, MQTT, simulator, graceful shutdown
+  application.ts      Express app factory (middleware + routes)
+  index.ts            Vercel entrypoint: default-exported Express application
+  standalone.ts       Standalone entrypoint: DB, HTTP, MQTT, simulator, graceful shutdown
   constants.ts        Roles, statuses, limits (single source of truth)
   config/             Env validation, logger, Mongo connection, JWT
   models/             Mongoose schemas (User, Route, Bus, Booking, LocationPing, DriverAccessRequest)
@@ -50,10 +51,13 @@ Scripts: `npm run dev`, `npm run build && npm start`, `npm test`, `npm run typec
 ## Production deployment
 
 1. Set `NODE_ENV=production`, a unique random `JWT_SECRET` (at least 32 characters), a TLS MongoDB URI (`mongodb+srv://` or `mongodb://...?tls=true`), and an exact comma-separated `CORS_ORIGIN` allowlist. Do not use `*`.
-2. Configure a private MQTT broker. If `MQTT_ENABLED=true`, set `MQTT_BROKER_URL=mqtts://...`, `MQTT_USERNAME`, and `MQTT_PASSWORD`. Configure broker-side ACLs so each device can publish only its own bus topic and the API identity can subscribe only to the required location topic. Do not use a public anonymous broker for production GPS data.
-3. Keep `GPS_SIMULATOR_ENABLED=false` in production. Store `.env` and uploaded driver documents outside source control; `private_uploads/` must not be exposed by the web server or reverse proxy. Terminate HTTPS at a trusted reverse proxy/load balancer.
-4. On the first dependency install, run `npm install` and commit the generated `package-lock.json`; subsequent clean builds should use `npm ci && npm run build`, then start with `npm start`. Use a MongoDB replica set; transactions are required for booking and fleet assignment operations.
-5. Create the first administrator once, using deployment secrets injected only for this command:
+2. **Vercel:** deploy this repository with the project Root Directory set to the folder containing this `package.json`. Vercel detects `src/index.ts` as the only Express entrypoint and serves its default-exported app. Add `NODE_ENV`, `JWT_SECRET`, `MONGODB_URI`, and `CORS_ORIGIN` under Project Settings → Environment Variables for Production and Preview as applicable. Do not set `JWT_SECRET` to the `.env.example` placeholder. MongoDB Atlas must permit connections from your Vercel deployment. The root URL (`/`) is a lightweight function probe; `/health` checks database connectivity.
+   - Keep `MQTT_ENABLED=false` on Vercel unless you run MQTT ingestion in a separate persistent worker. Serverless functions are request-driven and should not own an always-on subscriber.
+   - Driver-document upload and retrieval endpoints intentionally return `503` on Vercel until durable private object storage is implemented. The current local-disk implementation is not safe for identity documents in serverless deployments: the function bundle is read-only and `/tmp` is ephemeral. Configure a private object store (for example, a private S3-compatible bucket with server-side encryption and tightly scoped access) before enabling these endpoints.
+3. Configure a private MQTT broker. If `MQTT_ENABLED=true`, set `MQTT_BROKER_URL=mqtts://...`, `MQTT_USERNAME`, and `MQTT_PASSWORD`. Configure broker-side ACLs so each device can publish only its own bus topic and the API identity can subscribe only to the required location topic. Do not use a public anonymous broker for production GPS data.
+4. Keep `GPS_SIMULATOR_ENABLED=false` in production. Store `.env` and uploaded driver documents outside source control; `private_uploads/` must not be exposed by the web server or reverse proxy. Terminate HTTPS at a trusted reverse proxy/load balancer.
+5. On the first dependency install, run `npm install` and commit the generated `package-lock.json`; subsequent clean builds should use `npm ci && npm run build`, then start with `npm start`. Use a MongoDB replica set; transactions are required for booking and fleet assignment operations.
+6. Create the first administrator once, using deployment secrets injected only for this command:
 
    ```bash
    ADMIN_BOOTSTRAP_NAME="System Administrator" \
@@ -63,9 +67,9 @@ Scripts: `npm run dev`, `npm run build && npm start`, `npm test`, `npm run typec
    ```
 
    The command refuses to create another admin when one already exists. Do not put the bootstrap password in source control or a persistent `.env` file.
-6. Run `npm test`, `npm run typecheck`, and `npm run build` in CI before deployment. Back up MongoDB and private document storage, monitor `/health`, and rotate MQTT/JWT credentials on compromise.
+7. Run `npm test`, `npm run typecheck`, and `npm run build` in CI before deployment. Back up MongoDB and private document storage, monitor `/health`, and rotate MQTT/JWT credentials on compromise.
 
-**Operational note:** the included `express-rate-limit` memory store is suitable for a single API instance. Use a shared Redis-compatible rate-limit store before running multiple API replicas so limits cannot be bypassed by switching instances.
+**Operational note:** the included `express-rate-limit` memory store is local to each process. Vercel may run multiple function instances, so use a shared Redis-compatible rate-limit store for production-wide limits. The Vercel entrypoint trusts one platform proxy hop for correct client-IP rate limiting.
 
 ## Endpoints
 

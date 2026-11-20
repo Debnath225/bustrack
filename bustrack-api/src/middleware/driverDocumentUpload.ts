@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import type { NextFunction, Request, Response } from "express";
 import multer from "multer";
-import { driverDocumentsDir, removeDriverDocumentFiles } from "../services/driverDocumentStorage";
+import { driverDocumentStorageAvailable, driverDocumentsDir, removeDriverDocumentFiles } from "../services/driverDocumentStorage";
 
 const ACCEPTED_MIME_TYPES = new Set(["image/jpeg", "image/png"]);
 
@@ -39,6 +39,14 @@ export function getUploadedDriverDocuments(req: Request): Express.Multer.File[] 
 
 /** Parses the two document images. Rejected uploads are deleted from disk. */
 export function parseDriverDocuments(req: Request, res: Response, next: NextFunction): void {
+  if (!driverDocumentStorageAvailable) {
+    res.status(503).json({
+      success: false,
+      message: "Private driver-document storage is not configured for this serverless deployment. Configure durable private object storage before accepting identity documents.",
+    });
+    return;
+  }
+
   documentFields(req, res, (error: unknown) => {
     if (!error) {
       next();

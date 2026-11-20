@@ -11,6 +11,7 @@ import { assertObjectId } from "../utils/ids";
 import { runInTransaction } from "../utils/transaction";
 import {
   documentExists,
+  driverDocumentStorageAvailable,
   getPrivateDriverDocumentPath,
   removeDriverDocumentFiles,
 } from "./driverDocumentStorage";
@@ -104,6 +105,9 @@ export async function listAccessRequests() {
 }
 
 export async function getDocumentPath(requestId: string, type: "driving-license" | "aadhaar-card"): Promise<string> {
+  if (!driverDocumentStorageAvailable) {
+    throw new HttpError(503, "Private driver-document storage is not configured for this serverless deployment.");
+  }
   assertObjectId(requestId, "Document not found.");
   const request = await DriverAccessRequest.findById(requestId);
   const filename = type === "driving-license" ? request?.drivingLicensePath : request?.aadhaarCardPath;

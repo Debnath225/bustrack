@@ -1,9 +1,28 @@
 import { existsSync, mkdirSync, promises as fs } from "fs";
+import { tmpdir } from "os";
 import { join, resolve } from "path";
 
-/** Driver documents live outside the public folder and are only served through an admin endpoint. */
-export const driverDocumentsDir = resolve(__dirname, "../../private_uploads/driver-access");
-mkdirSync(driverDocumentsDir, { recursive: true });
+/**
+ * Driver documents must never be written into the deployed function bundle.
+ * Vercel's function filesystem is read-only except for its temporary directory.
+ * Note: /tmp is ephemeral; use durable private object storage for production
+ * driver documents (especially identity documents) across deployments/instances.
+ */
+const isVercelRuntime = process.env.VERCEL === "1";
+const configuredDirectory = process.env.DRIVER_DOCUMENTS_DIR?.trim();
+export const driverDocumentsDir = isVercelRuntime
+  ? join(tmpdir(), "bustrack-api", "driver-access")
+  : configuredDirectory
+    ? resolve(configuredDirectory)
+    : resolve(__dirname, "../../private_uploads/driver-access");
+
+// Local development/self-hosted deployments may use a private disk directory.
+// Vercel uses a read-only bundle and ephemeral /tmp, so do not create or accept
+// identity-document uploads there until a durable private object-store adapter exists.
+export const driverDocumentStorageAvailable = !isVercelRuntime;
+if (driverDocumentStorageAvailable) {
+  mkdirSync(driverDocumentsDir, { recursive: true });
+}
 
 // Stored names are generated as <uuid>.jpg|png. Anything else is rejected.
 const STORED_NAME = /^[a-f0-9-]{36}\.(jpg|png)$/;
